@@ -28,10 +28,28 @@ def generate_launch_description():
             cmd=['ros2', 'bag', 'play', bag_file],
             output='screen'
         )
+    
+    icp = Node(
+            package='rtabmap_odom',
+            namespace='',
+            executable='icp_odometry',
+            name='icp_odometry',
+            parameters=[{
+                "frame_id": "lidar_frontLeft_link",
+                "odom_frame_id": 'odom',
+                "publish_tf": True,
+                }
+            ],
+            remappings=[
+                ("scan", '/LidarFrontLeft/scan'),
+                ("odom", '/odom'),
+            ]
+        )
     return LaunchDescription(
         [
             rviz,
             dmo,
-            bag
+            bag,
+            icp
         ]
     )

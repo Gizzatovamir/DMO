@@ -123,7 +123,7 @@ class DynamicObjectDetector(Node):
         self.cluster_pub_1 = self.create_publisher(LaserScan, '/clustered_scan_1', 10)
         self.point_publisher = self.create_publisher(PointCloud2, '/current_points', 10)
         self.point_publisher_1 = self.create_publisher(PointCloud2, '/last_points', 10)
-        self.odom_sub = message_filters.Subscriber(self, Odometry, '/test_odom', qos_profile=qos_profile_sensor_data)
+        self.odom_sub = message_filters.Subscriber(self, Odometry, '/odom', qos_profile=qos_profile_sensor_data)
         # self.cluster_model = HDBSCAN(min_cluster_size=10, min_samples=15)
         # self.cluster_model = OPTICS(eps=self.dbscan_eps, min_samples=self.cluster_min_sample, cluster_method='dbscan', max_eps=1)
         self.max_len: int = 6
