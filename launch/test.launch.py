@@ -15,7 +15,7 @@ def generate_launch_description():
             namespace='',
             executable='rviz2',
             name='rviz2',
-            arguments=[f'-d {rviz_config}']
+            arguments=['-d', f'{rviz_config}']
         )
     dmo = Node(
             package='dmo',

@@ -20,6 +20,8 @@ from scipy.optimize import linear_sum_assignment
 from sklearn.ensemble import IsolationForest
 from matplotlib import pyplot as plt
 from matplotlib import animation
+from .utils import Bbox
+from visualization_msgs.msg import MarkerArray
 
 EPS = 1e-9
 STEP = 0.01
@@ -80,12 +82,12 @@ def get_translate(odom_1: Odometry, odom_2: Odometry) -> tuple[np.array, np.arra
 
 def pol2cart(rho, phi):
     res: np.array = np.empty((0,2))
-    if rho < 2:
+    if rho < 12:
         x = rho* np.cos(phi)
         y = rho * np.sin(phi)
     else:
-        x = np.inf
-        y = np.inf
+        x = 999
+        y = 999
     res = np.vstack((res, (x,y)))
     return res
 
@@ -124,19 +126,12 @@ class DynamicObjectDetector(Node):
         self.point_publisher = self.create_publisher(PointCloud2, '/current_points', 10)
         self.point_publisher_1 = self.create_publisher(PointCloud2, '/last_points', 10)
         self.odom_sub = message_filters.Subscriber(self, Odometry, '/odom', qos_profile=qos_profile_sensor_data)
-        # self.cluster_model = HDBSCAN(min_cluster_size=10, min_samples=15)
-        # self.cluster_model = OPTICS(eps=self.dbscan_eps, min_samples=self.cluster_min_sample, cluster_method='dbscan', max_eps=1)
         self.max_len: int = 6
         self.synchronizer = message_filters.ApproximateTimeSynchronizer(
             [self.laser_sub, self.odom_sub], queue_size=self.max_len, slop=0.01
         )
         self.synchronizer.registerCallback(self.sync_callback)
 
-        self.c: float = 2
-        self.dbscan_eps = 0.25
-        self.cluster_min_sample = 10
-        self.cluster_model = DBSCAN(eps=self.dbscan_eps, min_samples=self.cluster_min_sample)
-        # self.cluster_model = OPTICS(eps=self.dbscan_eps, min_samples=self.cluster_min_sample, cluster_method='dbscan', max_eps=1)
         self.min_upper_bound: float = 0.05
         self.min_bound: float = 2
         self.deque_index: int = -1
@@ -146,7 +141,9 @@ class DynamicObjectDetector(Node):
         self.last_msgs: deque = deque(maxlen=self.max_len)
         self.last_scans: deque[LaserScan] = deque(maxlen=self.max_len)
         self.odom_queue: deque[Odometry] = deque(maxlen=self.max_len)
-        self.last_prob: deque[np.array] = deque(maxlen=self.max_len)
+        self.bbox = Bbox(0.04)
+        self.cur_marker_pub = self.create_publisher(MarkerArray, '/cur_markers', 10)
+        self.last_marker_pub = self.create_publisher(MarkerArray, '/last_markers', 10)
     
     @property
     def header(self) -> Header:
@@ -194,35 +191,17 @@ class DynamicObjectDetector(Node):
         curr_points, last_points = laserscan_to_pcl(curr_scan, self.last_msgs[self.deque_index])
         curr_t, curr_r = get_t_from_odom(odom)  
         last_t, last_r = get_t_from_odom(self.odom_queue[self.deque_index])  
-        last_points = last_points @ last_r + last_t
-        curr_points = curr_points @ curr_r + curr_t
+        # self.get_logger().info(f't - {curr_t}, r - {curr_r}')
+        # self.get_logger().info(f't - {last_t}, r - {last_r}')
+        # self.get_logger().info(f'p - {curr_points}')
+        # self.get_logger().info(f'l_p - {last_points}')
+        last_points = np.matmul(last_points,last_r) + last_t
+        curr_points = np.matmul(curr_points,curr_r) + curr_t
+        curr_markers = self.bbox.run(curr_points, curr_scan.header)
+        last_markers = self.bbox.run(last_points, curr_scan.header)
 
-        res_prob, rows, cols = calc_probability(curr_points, last_points)
-        res_prob[rows]  = np.sqrt((res_prob[rows] + self.last_prob[-1][cols])**2)
-        res_prob /=sum(res_prob)
-
-    
-
-        upper_bound = np.mean(res_prob) + self.c*np.std(res_prob)
-        print(f'mean - {np.mean(res_prob)}')
-        print(f'var - {self.c*np.std(res_prob)}')
-        # if upper_bound > self.min_upper_bound:
-        #     bound = upper_bound
-        # else:
-        #     bound = self.min_upper_bound
-        motion_idx = (res_prob >= upper_bound)
-        new_msg = PoseArray()
-        new_msg.header = self.header
-
-        # print(len(motion_idx), len(mean_cluster))
-        if motion_idx.any():
-            motion_points = curr_points[motion_idx]
-            for c_points in motion_points:
-                new_point = Pose()
-                new_point.position.x = c_points[0]
-                new_point.position.y = c_points[1]
-                new_msg.poses.append(new_point)
-        self.pose_pub.publish(new_msg)
+        self.cur_marker_pub.publish(curr_markers)
+        self.last_marker_pub.publish(last_markers)
 
         curr_pcl = point_cloud2.create_cloud_xyz32(self.header, np.hstack((curr_points, np.zeros((len(curr_points), 1)))))
         last_pcl = point_cloud2.create_cloud_xyz32(self.header, np.hstack((last_points, np.zeros((len(last_points), 1)))))
@@ -230,18 +209,11 @@ class DynamicObjectDetector(Node):
         self.point_publisher.publish(curr_pcl)
         self.point_publisher_1.publish(last_pcl)
 
-        # last_points[:, -1] = curr_prob
-        return res_prob
-
-        
-
     def sync_callback(self, scan: LaserScan, odom: Odometry) -> None:
         # pcl = single_laserscan_to_pcl(scan)
         if len(self.last_msgs) >= self.max_len:
-            prob = self.get_diff(scan, odom)
-        else:
-            prob = np.ones((LASERSCAN_SIZE, ))/LASERSCAN_SIZE
-        self.last_prob.append(prob)
+            self.get_diff(scan, odom)
+
         self.last_msgs.append(scan)
         self.odom_queue.append(odom)
 

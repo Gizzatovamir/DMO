@@ -2,7 +2,7 @@ import numpy as np
 import matplotlib.pyplot as plt
 from sklearn.cluster import DBSCAN
 from visualization_msgs.msg import MarkerArray, Marker
-# from geometry_msgs.msg import Point2D
+from geometry_msgs.msg import Point
 from std_msgs.msg import Header
 
 class Point2D:
@@ -42,22 +42,31 @@ class Bbox(object):
                 rects.append(Rect(cluster))
         return rects
 
-    def run(self, point:np.array, header: Header) -> MarkerArray:
+    def run(self, points:np.array, header: Header) -> MarkerArray:
         rects = self.get_bbox(points)
         markers = MarkerArray()
         for index, rect in enumerate(rects):
             marker = Marker()
             marker.header = header
             marker.id = index
-            marker.type = 4
-            marker.action = 0
-            points = []
+            marker.type = Marker.LINE_STRIP
+            marker.action = Marker.ADD
+            marker.scale.x = 0.1  # Line width
+            marker.color.r = 1.0
+            marker.color.g = 0.0
+            marker.color.b = 0.0
+            marker.color.a = 1.0
+            m_points = []
             for edge in rect.edges:
-                point = Point2D32()
-                point.x = rect.edges
-                point.y = 
-                point.z = 
-        msg._polygon.points = 
+                point = Point()
+                point.x = edge.x
+                point.y = edge.y
+                point.z = 0.0
+                m_points.append(point)
+            # print(m_points)
+            marker.points = m_points
+            markers.markers.append(marker)
+        return markers
     
 if __name__ == '__main__':
     pcl_1 = np.random.normal(3, 0.05, size=(720,2))
